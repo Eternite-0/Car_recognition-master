@@ -13,6 +13,13 @@
 - PyTorch >= 1.7
 - 其他依赖见requirements.txt
 
+需要检查显卡支持的版本
+win+R 输入nvidia-smi
+![Uploading image.png…]()
+
+
+
+
 ## 快速开始
 
 ### 安装依赖
