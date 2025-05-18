@@ -117,7 +117,7 @@ def get_plate_rec_landmark(img, xyxy, conf, landmarks, class_num, device, plate_
     if class_label:  # 判断是否是双层车牌，是双牌的话进行分割后然后拼接
         roi_img = get_split_merge(roi_img)
     plate_number, plate_color = get_plate_result(roi_img, device, plate_rec_model)  # 对车牌小图进行识别,得到颜色和车牌号
-    for dan in danger:  # 只要出现‘危’或者‘险’就是危险品车牌
+    for dan in danger:  # 只要出现'危'或者'险'就是危险品车牌
         if dan in plate_number:
             plate_number = '危险品'
     # cv2.imwrite("roi.jpg",roi_img)
@@ -249,6 +249,71 @@ def get_second(capture):
         FrameNumber = capture.get(7)  # 视频文件的帧数
         duration = FrameNumber / rate  # 帧速率/视频总帧数 是时间，除以60之后单位是分钟
         return int(rate), int(FrameNumber), int(duration)
+
+
+def process_video(video_path, img_size=384):
+    """处理视频并返回处理后的视频路径和识别结果"""
+    # 确保临时目录存在
+    temp_dir = "temp_videos"
+    if not os.path.exists(temp_dir):
+        os.makedirs(temp_dir)
+    
+    # 生成唯一的输出文件名
+    output_path = os.path.join(temp_dir, f"processed_{int(time.time())}.mp4")
+    
+    # 打开视频文件
+    cap = cv2.VideoCapture(video_path)
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    
+    # 创建输出视频写入器
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+    
+    all_results = []
+    frame_count = 0
+    
+    # 处理视频的每一帧
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+        
+        # 每隔一定帧数处理一次，提高效率
+        if frame_count % 3 == 0:  # 每3帧处理一次
+            # 使用现有的检测和识别函数处理帧
+            dict_list = detect_Recognition_plate(detect_model, frame, device, plate_rec_model, img_size, car_rec_model)
+            
+            # 收集识别结果
+            for result in dict_list:
+                if result not in all_results:
+                    all_results.append(result)
+            
+            # 绘制结果
+            result_frame = draw_result(frame.copy(), dict_list)
+        else:
+            # 非处理帧，直接复制上一帧的结果
+            result_frame = frame
+        
+        # 写入输出视频
+        out.write(result_frame)
+        frame_count += 1
+    
+    # 释放资源
+    cap.release()
+    out.release()
+    
+    # 格式化识别结果文本
+    result_text = ""
+    for i, result in enumerate(all_results):
+        if result.get('object_no') == 2:  # 车辆
+            result_text += f"{i+1}. 车辆颜色: {result['car_color']} (置信度: {result['color_conf']:.2f})\n"
+        else:  # 车牌
+            plate_type = "单层" if result['object_no'] == 0 else "双层"
+            result_text += f"{i+1}. 车牌: {result['plate_no']} - 颜色: {result['plate_color']} - 类型: {plate_type}\n"
+    
+    return output_path, result_text
 
 
 if __name__ == '__main__':

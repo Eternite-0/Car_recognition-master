@@ -75,16 +75,15 @@ def get_plate_rec_landmark(img, xyxy, conf, landmarks, class_num,device):
     return result_dict
 
 
-
-def detect_plate(model, orgimg, device,img_size):
+def detect_plate(model, orgimg, device, img_size, conf_thres=0.3, iou_thres=0.5):
     # Load model
     # img_size = opt_img_size
-    conf_thres = 0.3
-    iou_thres = 0.5
+    # conf_thres = 0.3 # 使用传入的参数
+    # iou_thres = 0.5 # 使用传入的参数
     dict_list=[]
     # orgimg = cv2.imread(image_path)  # BGR
     img0 = copy.deepcopy(orgimg)
-    assert orgimg is not None, 'Image Not Found ' 
+    assert orgimg is not None, 'Image Not Found '
     h0, w0 = orgimg.shape[:2]  # orig hw
     r = img_size / max(h0, w0)  # resize image to img_size
     if r != 1:  # always resize down, only resize up if training with augmentation
@@ -114,7 +113,7 @@ def detect_plate(model, orgimg, device,img_size):
     # print(f"infer time is {(t2-t1)*1000} ms")
 
     # Apply NMS
-    pred = non_max_suppression_face(pred, conf_thres, iou_thres)
+    pred = non_max_suppression_face(pred, conf_thres, iou_thres) # 使用传入的参数
 
     # print('img.shape: ', img.shape)
     # print('orgimg.shape: ', orgimg.shape)
@@ -142,37 +141,48 @@ def detect_plate(model, orgimg, device,img_size):
     # cv2.imwrite('result.jpg', orgimg)
 
 
-
 def draw_result(orgimg,dict_list):
     result_str =""
     for result in dict_list:
         rect_area = result['rect']
-        
-        x,y,w,h = rect_area[0],rect_area[1],rect_area[2]-rect_area[0],rect_area[3]-rect_area[1]
-        padding_w = 0.05*w
-        padding_h = 0.11*h
-        rect_area[0]=max(0,int(x-padding_w))
-        rect_area[1]=max(0,int(y-padding_h))
-        rect_area[2]=min(orgimg.shape[1],int(rect_area[2]+padding_w))
-        rect_area[3]=min(orgimg.shape[0],int(rect_area[3]+padding_h))
 
-        
+        # 移除边界框填充
+        # x,y,w,h = rect_area[0],rect_area[1],rect_area[2]-rect_area[0],rect_area[3]-rect_area[1]
+        # padding_w = 0.05*w
+        # padding_h = 0.11*h
+        # rect_area[0]=max(0,int(x-padding_w))
+        # rect_area[1]=max(0,int(y-padding_h))
+        # rect_area[2]=min(orgimg.shape[1],int(rect_area[2]+padding_w))
+        # rect_area[3]=min(orgimg.shape[0],int(rect_area[3]+padding_h))
+        # 直接使用原始坐标
+        rect_area = [int(max(0, c)) for c in rect_area] # 确保坐标不为负
+
+
         landmarks=result['landmarks']
         label=result['class']
         # result_str+=result+" "
         for i in range(4):  #关键点
             cv2.circle(orgimg, (int(landmarks[i][0]), int(landmarks[i][1])), 5, clors[i], -1)
+        # 使用原始（但确保非负）的坐标绘制边界框
         cv2.rectangle(orgimg,(rect_area[0],rect_area[1]),(rect_area[2],rect_area[3]),clors[label],2) #画框
-        cv2.putText(img,str(label),(rect_area[0],rect_area[1]),cv2.FONT_HERSHEY_SIMPLEX,0.5,clors[label],2)
+        # 注意: 下面的 putText 使用了全局变量 img，这可能不是预期的行为，建议改为 orgimg
+        # cv2.putText(img,str(label),(rect_area[0],rect_area[1]),cv2.FONT_HERSHEY_SIMPLEX,0.5,clors[label],2)
+        # 修正为在 orgimg 上绘制文本
+        cv2.putText(orgimg, str(label), (rect_area[0], rect_area[1] - 5 if rect_area[1] > 10 else rect_area[1] + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, clors[label], 2)
     #     orgimg=cv2ImgAddText(orgimg,label,rect_area[0]-height_area,rect_area[1]-height_area-10,(0,255,0),height_area)
     # print(result_str)
     return orgimg
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--detect_model', nargs='+', type=str, default='weights/detect.pt', help='model.pt path(s)')  #检测模型
-    parser.add_argument('--image_path', type=str, default='imgs', help='source') 
+    parser.add_argument('--image_path', type=str, default='imgs', help='source')
     parser.add_argument('--img_size', type=int, default=640, help='inference size (pixels)')
-    parser.add_argument('--output', type=str, default='result1', help='source') 
+    parser.add_argument('--output', type=str, default='result1', help='source')
+    # 添加新的命令行参数
+    parser.add_argument('--conf-thres', type=float, default=0.3, help='object confidence threshold')
+    parser.add_argument('--iou-thres', type=float, default=0.5, help='IOU threshold for NMS')
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # device =torch.device("cpu")
     opt = parser.parse_args()
@@ -185,21 +195,23 @@ if __name__ == '__main__':
     detect_model = load_model(opt.detect_model, device)  #初始化检测模型
     time_all = 0
     time_begin=time.time()
+    file_list = [] # 初始化 file_list
     if not os.path.isfile(opt.image_path):            #目录
-        file_list=[]
+        # file_list=[] # 移到外部初始化
         allFilePath(opt.image_path,file_list)
         for img_path in file_list:
-            
+
             print(count,img_path)
             time_b = time.time()
             img =cv_imread(img_path)
-            
+
             if img is None:
                 continue
             if img.shape[-1]==4:
                 img=cv2.cvtColor(img,cv2.COLOR_BGRA2BGR)
             # detect_one(model,img_path,device)
-            dict_list=detect_plate(detect_model, img, device,opt.img_size)
+            # 传递新的参数给 detect_plate
+            dict_list=detect_plate(detect_model, img, device, opt.img_size, opt.conf_thres, opt.iou_thres)
             ori_img=draw_result(img,dict_list)
             img_name = os.path.basename(img_path)
             save_img_path = os.path.join(save_path,img_name)
@@ -209,15 +221,24 @@ if __name__ == '__main__':
                 time_all+=time_gap
             cv2.imwrite(save_img_path,ori_img)
             count+=1
+        # 修复平均时间计算的分母
+        avg_time = time_all / (count -1) if count > 1 else 0
     else:                                          #单个图片
             print(count,opt.image_path,end=" ")
             img =cv_imread(opt.image_path)
             if img.shape[-1]==4:
                 img=cv2.cvtColor(img,cv2.COLOR_BGRA2BGR)
             # detect_one(model,img_path,device)
-            dict_list=detect_plate(detect_model, img, device,opt.img_size)
+             # 传递新的参数给 detect_plate
+            dict_list=detect_plate(detect_model, img, device, opt.img_size, opt.conf_thres, opt.iou_thres)
             ori_img=draw_result(img,dict_list)
             img_name = os.path.basename(opt.image_path)
             save_img_path = os.path.join(save_path,img_name)
-            cv2.imwrite(save_img_path,ori_img)  
-    print(f"sumTime time is {time.time()-time_begin} s, average pic time is {time_all/(len(file_list)-1)}")
+            cv2.imwrite(save_img_path,ori_img)
+            count = 1 # 单个文件计数为1
+            avg_time = time.time() - time_begin # 单个文件直接计算总时间
+    # 统一输出格式
+    print(f"Processed {count} images.")
+    print(f"Total time: {time.time()-time_begin:.4f} s")
+    if count > 1:
+        print(f"Average time per image (excluding first): {avg_time:.4f} s")
