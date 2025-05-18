@@ -28,9 +28,9 @@
    pip install -r requirements.txt
 
 2. 运行程序：
-   python Car_recognition.py --image_path 输入图片路径 --output 输出路径
-   或
-   python Car_recognition.py --video 输入视频路径
+   可视化界面: python app.py
+   其它:
+   python Car_recognition.py --image_path 输入图片路径 --output 输出路径 或  python Car_recognition.py --video 输入视频路径
 
 参数说明：
 --detect_model：车牌检测模型路径（默认：weights/detect.pt）
